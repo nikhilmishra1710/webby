@@ -1,0 +1,29 @@
+[project]
+name = "webby"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "nikhilmishra1710",email = "nikhilmishra1710@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+]
+
+[tool.poetry]
+packages = [{include = "webby", from = "src"}]
+
+[tool.poetry.scripts]
+webby = "webby.__main__:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.2,<10.0.0)"
+]
