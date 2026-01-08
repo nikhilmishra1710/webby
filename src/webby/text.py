@@ -1,6 +1,8 @@
 class Text:
-    def __init__(self, text):
+    def __init__(self, text, parent=None):
         self.text = text
+        self.parent = parent
+        self.children = []
         
     def __repr__(self):
-        return f"<Text {self.text}>"
+        return f"{self.text}"

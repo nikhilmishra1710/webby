@@ -1,13 +1,8 @@
 import tkinter
 
-from src.webby.tag import Tag
-from src.webby.text import Text
+from src.webby.constants import HEIGHT, WIDTH, VSTEP, SCROLL_STEP
 from src.webby.layout import Layout
-
-HEIGHT, WIDTH = 600, 800
-HSTEP, VSTEP = 13, 18
-SCROLL_STEP = 100
-cursor_x, cursor_y = HSTEP, VSTEP
+from src.webby.html_parser import HTMLParser
 
 
 class Browser:
@@ -17,13 +12,15 @@ class Browser:
         self.window.bind("<Down>", self.scrollDown)
         self.window.bind("<Up>", self.scrollUp)
         self.canvas = tkinter.Canvas(self.window, width=WIDTH, height=HEIGHT)
+        self.parser = HTMLParser()
         self.canvas.pack()
 
     def load(self, url):
         body = url.request()
         print(body)
-        tokens = lex(body)
-        self.display_list = Layout(tokens).display_list
+        self.nodes = self.parser.parse(body)
+        self.parser.print_tree(self.nodes)
+        self.display_list = Layout(self.nodes).display_list
         self.draw()
 
     def scrollDown(self, e):
@@ -43,26 +40,6 @@ class Browser:
                 continue
             if y + VSTEP < self.scroll:
                 continue
-            self.canvas.create_text(x, y - self.scroll, text=word, font=font, anchor="nw")
-
-
-def lex(body):
-    out = []
-    buffer = ""
-    in_tag = False
-    for c in body:
-        if c == "<":
-            in_tag = True
-            if buffer:
-                out.append(Text(buffer))
-            buffer = ""
-        elif c == ">":
-            in_tag = False
-            out.append(Tag(buffer))
-            buffer = ""
-        else:
-            buffer += c
-    if not in_tag and buffer:
-        out.append(Text(buffer))
-
-    return out
+            self.canvas.create_text(
+                x, y - self.scroll, text=word, font=font, anchor="nw"
+            )

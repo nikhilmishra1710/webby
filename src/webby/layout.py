@@ -14,14 +14,47 @@ class Layout:
     style = "roman"
     size = 12
 
-    def __init__(self, tokens):
+    def __init__(self, tree):
         self.display_list = []
         self.line = []
-        print("Tokens:", tokens)
-        for tok in tokens:
-            self.token(tok)
+        self.recurse(tree)
         self.flush()
 
+    def open_tag(self, tag):
+        if tag == "i":
+            self.style = "italic"
+        elif tag == "b":
+            self.weight = "bold"
+        elif tag == "small":
+            self.size -= 2
+        elif tag == "big":
+            self.size += 4
+        elif tag == "br":
+            self.flush()
+    
+    def close_tag(self, tag):
+        if tag == "i":
+            self.style = "roman"
+        elif tag == "b":
+            self.weight = "normal"
+        elif tag == "small":
+            self.size += 2
+        elif tag == "big":
+            self.size -= 4
+        elif tag == "p":
+            self.flush()
+            self.cursor_y += VSTEP
+    
+    def recurse(self, tree):
+        if isinstance(tree, Text):
+            for word in tree.text.split():
+                    self.word(word)
+        else:
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
+    
     def token(self, tok):
         print("Token:", tok)
         if isinstance(tok, Text):
