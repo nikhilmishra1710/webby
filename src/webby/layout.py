@@ -1,24 +1,86 @@
 import tkinter.font
 
 from src.webby.text import Text
+from src.webby.element import Element
+from src.webby.constants import BLOCK_ELEMENTS
 
 
 HEIGHT, WIDTH = 600, 800
 HSTEP, VSTEP = 13, 18
 
 
-class Layout:
+class BlockLayout:
     cursor_x = 0
     cursor_y = 0
     weight = "normal"
     style = "roman"
     size = 12
 
-    def __init__(self, tree):
+    def __init__(self, node, parent, previous):
+        self.x = None
+        self.y = None
+        self.width = None
+        self.height = None
         self.display_list = []
         self.line = []
-        self.recurse(tree)
-        self.flush()
+        self.node = node
+        self.previous = previous
+        self.parent = parent
+        self.children = []
+
+    def layout(self):
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+        self.x = self.parent.x
+        self.width = self.parent.width
+        mode = self.layout_mode()
+        if mode == "block":
+            previous = None
+            for child in self.node.children:
+                next = BlockLayout(child, self, previous)
+                self.children.append(next)
+                previous = next
+            self.height = sum([
+                child.height for child in self.children])
+        else:
+            self.cursor_x = 0
+            self.cursor_y = 0
+            self.weight = "normal"
+            self.style = "roman"
+            self.size = 12
+
+            self.line = []
+            self.recurse(self.node)
+            self.flush()
+            
+            self.height = self.cursor_y
+
+        for child in self.children:
+            child.layout()
+
+    def layout_intermediate(self):
+        previous = None
+        for child in self.node.children:
+            next = BlockLayout(child, self, previous)
+            self.children.append(next)
+            previous = next
+
+    def layout_mode(self):
+        if isinstance(self.node, Text):
+            return "inline"
+        elif any(
+            [
+                isinstance(child, Element) and child.tag in BLOCK_ELEMENTS
+                for child in self.node.children
+            ]
+        ):
+            return "block"
+        elif self.node.children:
+            return "inline"
+        else:
+            return "block"
 
     def open_tag(self, tag):
         if tag == "i":
@@ -31,7 +93,7 @@ class Layout:
             self.size += 4
         elif tag == "br":
             self.flush()
-    
+
     def close_tag(self, tag):
         if tag == "i":
             self.style = "roman"
@@ -44,17 +106,17 @@ class Layout:
         elif tag == "p":
             self.flush()
             self.cursor_y += VSTEP
-    
+
     def recurse(self, tree):
         if isinstance(tree, Text):
             for word in tree.text.split():
-                    self.word(word)
+                self.word(word)
         else:
             self.open_tag(tree.tag)
             for child in tree.children:
                 self.recurse(child)
             self.close_tag(tree.tag)
-    
+
     def token(self, tok):
         print("Token:", tok)
         if isinstance(tok, Text):
@@ -88,7 +150,7 @@ class Layout:
         print("Word:", word, self.cursor_x, w, self.size)
         self.line.append((self.cursor_x, word, font))
         self.cursor_x += w + font.measure(" ")
-        if self.cursor_x + w > WIDTH - HSTEP:
+        if self.cursor_x + w > self.width:
             self.flush()
 
     def flush(self):
@@ -98,12 +160,12 @@ class Layout:
         print("Metrics:", metrics)
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = self.cursor_y + max_ascent * 1.25
-        for x, word, font in self.line:
-            y = baseline - font.metrics("ascent")
-            print(x, y, word)
+        for rel_x, word, font in self.line:
+            x = self.x + rel_x
+            y = self.y + baseline - font.metrics("ascent")
             self.display_list.append((x, y, word, font))
-        print(self.display_list)
+
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = baseline + 1.25 * max_descent
-        self.cursor_x = HSTEP
+        self.cursor_x = 0
         self.line = []

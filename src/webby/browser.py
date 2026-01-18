@@ -1,7 +1,7 @@
 import tkinter
 
 from src.webby.constants import HEIGHT, WIDTH, VSTEP, SCROLL_STEP
-from src.webby.layout import Layout
+from src.webby.document_layout import DocumentLayout
 from src.webby.html_parser import HTMLParser
 
 
@@ -20,7 +20,9 @@ class Browser:
         print(body)
         self.nodes = self.parser.parse(body)
         self.parser.print_tree(self.nodes)
-        self.display_list = Layout(self.nodes).display_list
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = self.document.display_list
         self.draw()
 
     def scrollDown(self, e):
