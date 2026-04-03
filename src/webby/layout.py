@@ -1,8 +1,9 @@
 import tkinter.font
 
-from src.webby.text import Text
-from src.webby.element import Element
 from src.webby.constants import BLOCK_ELEMENTS
+from src.webby.draw import DrawText, DrawRect
+from src.webby.element import Element
+from src.webby.text import Text
 
 
 HEIGHT, WIDTH = 600, 800
@@ -42,8 +43,9 @@ class BlockLayout:
                 next = BlockLayout(child, self, previous)
                 self.children.append(next)
                 previous = next
-            self.height = sum([
-                child.height for child in self.children])
+            for child in self.children:
+                child.layout()
+            self.height = sum([child.height for child in self.children])
         else:
             self.cursor_x = 0
             self.cursor_y = 0
@@ -54,11 +56,8 @@ class BlockLayout:
             self.line = []
             self.recurse(self.node)
             self.flush()
-            
-            self.height = self.cursor_y
 
-        for child in self.children:
-            child.layout()
+            self.height = self.cursor_y
 
     def layout_intermediate(self):
         previous = None
@@ -157,7 +156,6 @@ class BlockLayout:
         if not self.line:
             return
         metrics = [font.metrics() for _, __, font in self.line]
-        print("Metrics:", metrics)
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = self.cursor_y + max_ascent * 1.25
         for rel_x, word, font in self.line:
@@ -169,3 +167,14 @@ class BlockLayout:
         self.cursor_y = baseline + 1.25 * max_descent
         self.cursor_x = 0
         self.line = []
+
+    def paint(self):
+        cmds = []
+        if isinstance(self.node, Element) and self.node.tag == "pre":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(self.x, self.y, x2, y2, "gray")
+            cmds.append(rect)
+        if self.layout_mode() == "inline":
+            for x, y, word, font in self.display_list:
+                cmds.append(DrawText(x, y, word, font))
+        return cmds

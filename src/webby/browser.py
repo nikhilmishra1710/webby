@@ -5,6 +5,13 @@ from src.webby.document_layout import DocumentLayout
 from src.webby.html_parser import HTMLParser
 
 
+def paint_tree(layout_object, display_list):
+    display_list.extend(layout_object.paint())
+
+    for child in layout_object.children:
+        paint_tree(child, display_list)
+
+
 class Browser:
     def __init__(self):
         self.scroll = 0
@@ -17,16 +24,17 @@ class Browser:
 
     def load(self, url):
         body = url.request()
-        print(body)
         self.nodes = self.parser.parse(body)
-        self.parser.print_tree(self.nodes)
+        # self.parser.print_tree(self.nodes)
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
-        self.display_list = self.document.display_list
+        self.display_list = []
+        paint_tree(self.document, self.display_list)
         self.draw()
 
     def scrollDown(self, e):
-        self.scroll += SCROLL_STEP
+        max_y = max(self.document.height + 2*VSTEP - HEIGHT, 0)
+        self.scroll = min(self.scroll + SCROLL_STEP, max_y)
         self.draw()
 
     def scrollUp(self, e):
@@ -37,11 +45,9 @@ class Browser:
 
     def draw(self):
         self.canvas.delete("all")
-        for x, y, word, font in self.display_list:
-            if y > self.scroll + HEIGHT:
+        for cmd in self.display_list:
+            if cmd.top > self.scroll + HEIGHT:
                 continue
-            if y + VSTEP < self.scroll:
+            if cmd.bottom < self.scroll:
                 continue
-            self.canvas.create_text(
-                x, y - self.scroll, text=word, font=font, anchor="nw"
-            )
+            cmd.execute(self.scroll, self.canvas)

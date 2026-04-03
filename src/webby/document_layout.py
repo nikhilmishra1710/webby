@@ -20,5 +20,7 @@ class DocumentLayout:
         self.y = VSTEP
         child.layout()
         self.height = child.height
-        child.layout()
         self.display_list = child.display_list
+
+    def paint(self):
+        return []
