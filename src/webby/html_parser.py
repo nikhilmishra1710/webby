@@ -1,6 +1,6 @@
+from src.webby.constants import HEAD_TAGS, SELF_CLOSING_TAGS
 from src.webby.element import Element
 from src.webby.text import Text
-from src.webby.constants import SELF_CLOSING_TAGS, HEAD_TAGS
 
 
 class HTMLParser:
@@ -21,7 +21,7 @@ class HTMLParser:
                 self.add_tag("/head")
             else:
                 break
-                
+
     def get_attributes(self, tag_str):
         parts = tag_str.split()
         tag = parts[0].casefold()
@@ -29,13 +29,13 @@ class HTMLParser:
         for attrpairs in parts[1:]:
             if "=" in attrpairs:
                 key, value = attrpairs.split("=", 1)
-                if len(value) > 2 and value[0] in ["'", "\""]:
+                if len(value) > 2 and value[0] in ["'", '"']:
                     value = value[1:-1]
                 attrs[key.casefold()] = value.strip('"').strip("'")
             else:
                 attrs[attrpairs.casefold()] = ""
-        return tag, attrs    
-    
+        return tag, attrs
+
     def add_text(self, text):
         if text.isspace():
             return
