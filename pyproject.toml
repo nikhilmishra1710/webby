@@ -14,7 +14,7 @@ dependencies = [
 packages = [{include = "webby", from = "src"}]
 
 [tool.poetry.scripts]
-webby = "webby.__main__:main"
+webby = "src.webby.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

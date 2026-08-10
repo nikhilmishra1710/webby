@@ -4,8 +4,9 @@ from src.webby.text import Text
 
 
 class HTMLParser:
-    def __init__(self):
+    def __init__(self, body):
         self.unfinished_tag = []
+        self.body = body
 
     def implicit_tags(self, tag):
         while True:
@@ -79,10 +80,10 @@ class HTMLParser:
                 parent.children.append(node)
         return self.unfinished_tag[0] if self.unfinished_tag else None
 
-    def parse(self, body):
+    def parse(self):
         text = ""
         in_tag = False
-        for c in body:
+        for c in self.body:
             if c == "<":
                 in_tag = True
                 if text:
