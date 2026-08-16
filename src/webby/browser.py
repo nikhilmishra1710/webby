@@ -1,4 +1,5 @@
 import tkinter
+import urllib.parse
 
 from src.webby.constants import HEIGHT, SCROLL_STEP, VSTEP, WIDTH
 from src.webby.css_parser import CSSParser, cascade_priority, style, tree_to_list
@@ -12,7 +13,8 @@ from src.webby.url import URL
 
 
 def paint_tree(layout_object, display_list):
-    display_list.extend(layout_object.paint())
+    if layout_object.should_paint():
+        display_list.extend(layout_object.paint())
 
     for child in layout_object.children:
         paint_tree(child, display_list)
@@ -62,6 +64,9 @@ class Chrome:
         )
 
         self.bottom = self.urlbar_bottom
+
+    def blur(self):
+        self.focus = None
 
     def tab_rect(self, i):
         tabs_start = self.newtab_rect.right + self.padding
@@ -182,6 +187,8 @@ class Chrome:
     def keypress(self, char):
         if self.focus == "address bar":
             self.address_bar += char
+            return True
+        return False
 
     def enter(self):
         if self.focus == "address bar":
@@ -215,8 +222,11 @@ class Browser:
 
     def handle_click(self, e):
         if e.y < self.chrome.bottom:
+            self.focus = None
             self.chrome.click(e.x, e.y)
         else:
+            self.focus = "content"
+            self.chrome.blur()
             tab_y = e.y - self.chrome.bottom
             self.active_tab.click(e.x, tab_y)
         self.draw()
@@ -226,8 +236,11 @@ class Browser:
             return
         if not (0x20 <= ord(e.char) < 0x7F):
             return
-        self.chrome.keypress(e.char)
-        self.draw()
+        if self.chrome.keypress(e.char):
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.keypress(e.char)
+            self.draw()
 
     def handle_enter(self, e):
         self.chrome.enter()
@@ -252,15 +265,16 @@ class Tab:
         self.url = None
         self.history = []
         self.tab_height = tab_height
+        self.focus = None
 
-    def load(self, url):
-        body = url.request()
+    def load(self, url, payload=None):
+        body = url.request(payload)
         self.scroll = 0
         self.url = url
         self.history.append(url)
         self.nodes = HTMLParser(body).parse()
 
-        rules = DEFAULT_STYLE_SHEET.copy()
+        self.rules = DEFAULT_STYLE_SHEET.copy()
         links = [
             node.attributes["href"]
             for node in tree_to_list(self.nodes, [])
@@ -274,9 +288,12 @@ class Tab:
                 body = url.resolve(link).request()
             except:
                 continue
-            rules.extend(CSSParser(body).parse())
-        style(self.nodes, sorted(rules, key=cascade_priority))
+            self.rules.extend(CSSParser(body).parse())
 
+        self.render()
+
+    def render(self):
+        style(self.nodes, sorted(self.rules, key=cascade_priority))
         self.document = DocumentLayout(self.nodes)
         self.document.layout()
         self.display_list = []
@@ -296,6 +313,9 @@ class Tab:
 
     def click(self, x, y):
         y += self.scroll
+        if self.focus:
+            self.focus.is_focused = False
+        self.focus = None
         objs = [
             obj
             for obj in tree_to_list(self.document, [])
@@ -310,7 +330,41 @@ class Tab:
             elif elt.tag == "a" and "href" in elt.attributes:
                 url = self.url.resolve(elt.attributes["href"])
                 return self.load(url)
+            elif elt.tag == "input":
+                self.focus = elt
+                elt.attributes["value"] = ""
+                elt.is_focused = True
+                return self.render()
+            elif elt.tag == "button":
+                while elt:
+                    if elt.tag == "form" and "action" in elt.attributes:
+                        return self.submit_form(elt)
+                    elt = elt.parent
             elt = elt.parent
+
+    def submit_form(self, elt):
+        inputs = [
+            node
+            for node in tree_to_list(elt, [])
+            if isinstance(node, Element)
+            and node.tag == "input"
+            and "name" in node.attributes
+        ]
+        body = ""
+        for input in inputs:
+            name = input.attributes["name"]
+            value = input.attributes.get("value", "")
+            name = urllib.parse.quote(name)
+            value = urllib.parse.quote(value)
+            body += "&" + name + "=" + value
+        body = body[1:]
+        url = self.url.resolve(elt.attributes["action"])
+        self.load(url, body)
+
+    def keypress(self, char):
+        if self.focus:
+            self.focus.attributes["value"] += char
+            self.render()
 
     def go_back(self):
         if len(self.history) > 1:

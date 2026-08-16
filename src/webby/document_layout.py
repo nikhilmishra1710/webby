@@ -22,5 +22,8 @@ class DocumentLayout:
         self.height = child.height
         self.display_list = child.display_list
 
+    def should_paint(self):
+        return True
+
     def paint(self):
         return []

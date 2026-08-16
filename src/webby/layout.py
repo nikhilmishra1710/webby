@@ -1,8 +1,8 @@
-import tkinter.font
-
 from src.webby.constants import BLOCK_ELEMENTS
 from src.webby.draw import DrawRect, DrawText, Rect
 from src.webby.element import Element
+from src.webby.font import get_font
+from src.webby.input_layout import INPUT_WIDTH_PX, InputLayout
 from src.webby.text import Text
 
 HEIGHT, WIDTH = 600, 800
@@ -68,7 +68,7 @@ class BlockLayout:
             for child in self.node.children
         ):
             return "block"
-        elif self.node.children:
+        elif self.node.children or self.node.tag in ["input"]:
             return "inline"
         else:
             return "block"
@@ -98,6 +98,24 @@ class BlockLayout:
             self.flush()
             self.cursor_y += VSTEP
 
+    def input(self, node):
+        w = INPUT_WIDTH_PX
+        if self.cursor_x + w > self.width:
+            self.new_line()
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        input = InputLayout(node, line, previous_word)
+        line.children.append(input)
+
+        weight = node.style["font-weight"]
+        style = node.style["font-style"]
+        if style == "normal":
+            style = "roman"
+        size = int(float(node.style["font-size"][:-2]) * 0.75)
+        font = get_font(size, weight, style)
+
+        self.cursor_x += w + font.measure(" ")
+
     def recurse(self, node):
         if isinstance(node, Text):
             for word in node.text.split():
@@ -105,8 +123,11 @@ class BlockLayout:
         else:
             if node.tag == "br":
                 self.new_line()
-            for child in node.children:
-                self.recurse(child)
+            if node.tag in ["input", "button"]:
+                self.input(node)
+            else:
+                for child in node.children:
+                    self.recurse(child)
 
     def token(self, tok):
         if isinstance(tok, Text):
@@ -133,6 +154,11 @@ class BlockLayout:
         elif tok.tag == "/p":
             self.flush()
             self.cursor_y += VSTEP
+
+    def should_paint(self):
+        return isinstance(self.node, Text) or (
+            self.node.tag != "input" and self.node.tag != "button"
+        )
 
     def word(self, node, word):
         weight = node.style["font-weight"]
@@ -188,18 +214,6 @@ class BlockLayout:
         return cmds
 
 
-FONTS = {}
-
-
-def get_font(size, weight, style):
-    key = (size, weight, style)
-    if key not in FONTS:
-        font = tkinter.font.Font(size=size, weight=weight, slant=style)
-        label = tkinter.Label(font=font)
-        FONTS[key] = (font, label)
-    return FONTS[key][0]
-
-
 class LineLayout:
     def __init__(self, node, parent, previous):
         self.node = node
@@ -210,6 +224,9 @@ class LineLayout:
         self.y = None
         self.width = None
         self.height = None
+
+    def should_paint(self):
+        return True
 
     def layout(self):
         self.width = self.parent.width
@@ -255,6 +272,9 @@ class TextLayout:
         self.width = None
         self.height = None
         self.font = None
+
+    def should_paint(self):
+        return True
 
     def layout(self):
         weight = self.node.style["font-weight"]
