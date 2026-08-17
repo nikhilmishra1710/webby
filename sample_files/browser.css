@@ -30,3 +30,5 @@ button {
   font-style: normal;
   background-color: orange;
 }
+
+strong { font-weight: bold; color: red; }

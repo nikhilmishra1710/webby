@@ -34,6 +34,9 @@ def do_request(method, url, headers, body):
     elif method == "POST" and url == "/add":
         params = form_decode(body)
         return "200 OK", add_entry(params)
+    elif method == "GET" and url == "/comment.js":
+        with open("sample_files/comment.js") as f:
+            return "200 OK", f.read()
     else:
         return "404 Not Found", not_found(url, method)
 
@@ -53,6 +56,8 @@ ENTRIES = []
 
 def show_comments():
     out = "<!doctype html>"
+    out += "<script src=/comment.js></script>"
+    out += "<strong></strong>"
     out += "<form action=add method=post>"
     out += "<p><input name=guest></p>"
     out += "<p><button>Sign the book!</button></p>"
@@ -64,12 +69,12 @@ def show_comments():
 
 def not_found(url, method):
     out = "<!doctype html>"
-    out += "<h1>{} {} not found!</h1>".format(method, url)
+    out += f"<h1>{method} {url} not found!</h1>"
     return out
 
 
 def add_entry(params):
-    if "guest" in params:
+    if "guest" in params and len(params["guest"]) <= 10:
         ENTRIES.append(params["guest"])
     return show_comments()
 

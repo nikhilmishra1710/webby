@@ -7,6 +7,7 @@ from src.webby.document_layout import DocumentLayout
 from src.webby.draw import DrawLine, DrawOutline, DrawRect, DrawText, Rect
 from src.webby.element import Element
 from src.webby.html_parser import HTMLParser
+from src.webby.js_context import JSContext
 from src.webby.layout import get_font
 from src.webby.text import Text
 from src.webby.url import URL
@@ -283,12 +284,29 @@ class Tab:
             and node.attributes.get("rel") == "stylesheet"
             and "href" in node.attributes
         ]
+
         for link in links:
             try:
                 body = url.resolve(link).request()
             except:
                 continue
             self.rules.extend(CSSParser(body).parse())
+
+        scripts = [
+            node.attributes["src"]
+            for node in tree_to_list(self.nodes, [])
+            if isinstance(node, Element)
+            and node.tag == "script"
+            and "src" in node.attributes
+        ]
+        self.js = JSContext(self)
+        for script in scripts:
+            script_url = url.resolve(script)
+            try:
+                body = script_url.request()
+            except:
+                continue
+            self.js.run(script, body)
 
         self.render()
 
@@ -328,21 +346,30 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
+                if self.js.dispatch_event("click", elt):
+                    return
                 url = self.url.resolve(elt.attributes["href"])
                 return self.load(url)
             elif elt.tag == "input":
+                if self.js.dispatch_event("click", elt):
+                    return
                 self.focus = elt
                 elt.attributes["value"] = ""
                 elt.is_focused = True
                 return self.render()
             elif elt.tag == "button":
+                if self.js.dispatch_event("click", elt):
+                    return
                 while elt:
                     if elt.tag == "form" and "action" in elt.attributes:
                         return self.submit_form(elt)
                     elt = elt.parent
             elt = elt.parent
+        self.render()
 
     def submit_form(self, elt):
+        if self.js.dispatch_event("submit", elt):
+            return
         inputs = [
             node
             for node in tree_to_list(elt, [])
@@ -363,6 +390,8 @@ class Tab:
 
     def keypress(self, char):
         if self.focus:
+            if self.js.dispatch_event("keydown", self.focus):
+                return
             self.focus.attributes["value"] += char
             self.render()
 
