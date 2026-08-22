@@ -1,5 +1,8 @@
-import tkinter
+import ctypes
 import urllib.parse
+import math
+import sdl2
+import skia
 
 from src.webby.constants import HEIGHT, SCROLL_STEP, VSTEP, WIDTH
 from src.webby.css_parser import CSSParser, cascade_priority, style, tree_to_list
@@ -14,15 +17,24 @@ from src.webby.url import URL
 
 
 def paint_tree(layout_object, display_list):
+    cmds = []
     if layout_object.should_paint():
-        display_list.extend(layout_object.paint())
-
+        cmds = layout_object.paint()
     for child in layout_object.children:
-        paint_tree(child, display_list)
+        paint_tree(child, cmds)
+
+    if layout_object.should_paint():
+        cmds = layout_object.paint_effects(cmds)
+    display_list.extend(cmds)
 
 
 with open("sample_files/browser.css") as css_file:
     DEFAULT_STYLE_SHEET = CSSParser(css_file.read()).parse()
+
+
+def linespace(font):
+    metrics = font.getMetrics()
+    return metrics.fDescent - metrics.fAscent
 
 
 class Chrome:
@@ -32,14 +44,14 @@ class Chrome:
         self.address_bar = ""
 
         self.font = get_font(20, "normal", "roman")
-        self.font_height = self.font.metrics("linespace")
+        self.font_height = linespace(self.font)
 
         self.padding = 5
         self.tabbar_top = 0
         self.tabbar_bottom = self.font_height + 2 * self.padding
 
-        plus_width = self.font.measure("+") + 2 * self.padding
-        self.newtab_rect = Rect(
+        plus_width = self.font.measureText("+") + 2 * self.padding
+        self.newtab_rect = skia.Rect.MakeLTRB(
             self.padding,
             self.padding,
             self.padding + plus_width,
@@ -49,16 +61,16 @@ class Chrome:
         self.urlbar_top = self.tabbar_bottom
         self.urlbar_bottom = self.urlbar_top + self.font_height + 2 * self.padding
 
-        back_width = self.font.measure("<") + 2 * self.padding
-        self.back_rect = Rect(
+        back_width = self.font.measureText("<") + 2 * self.padding
+        self.back_rect = skia.Rect.MakeLTRB(
             self.padding,
             self.urlbar_top + self.padding,
             self.padding + back_width,
             self.urlbar_bottom - self.padding,
         )
 
-        self.address_rect = Rect(
-            self.back_rect.right + self.padding,
+        self.address_rect = skia.Rect.MakeLTRB(
+            self.back_rect.right() + self.padding,
             self.urlbar_top + self.padding,
             WIDTH - self.padding,
             self.urlbar_bottom - self.padding,
@@ -66,13 +78,10 @@ class Chrome:
 
         self.bottom = self.urlbar_bottom
 
-    def blur(self):
-        self.focus = None
-
     def tab_rect(self, i):
-        tabs_start = self.newtab_rect.right + self.padding
-        tab_width = self.font.measure("Tab X") + 2 * self.padding
-        return Rect(
+        tabs_start = self.newtab_rect.right() + self.padding
+        tab_width = self.font.measureText("Tab X") + 2 * self.padding
+        return skia.Rect.MakeLTRB(
             tabs_start + tab_width * i,
             self.tabbar_top,
             tabs_start + tab_width * (i + 1),
@@ -81,14 +90,13 @@ class Chrome:
 
     def paint(self):
         cmds = []
-        cmds.append(DrawRect(Rect(0, 0, WIDTH, self.bottom), "white"))
         cmds.append(DrawLine(0, self.bottom, WIDTH, self.bottom, "black", 1))
 
         cmds.append(DrawOutline(self.newtab_rect, "black", 1))
         cmds.append(
             DrawText(
-                self.newtab_rect.left + self.padding,
-                self.newtab_rect.top,
+                self.newtab_rect.left() + self.padding,
+                self.newtab_rect.top(),
                 "+",
                 self.font,
                 "black",
@@ -98,15 +106,15 @@ class Chrome:
         for i, tab in enumerate(self.browser.tabs):
             bounds = self.tab_rect(i)
             cmds.append(
-                DrawLine(bounds.left, 0, bounds.left, bounds.bottom, "black", 1)
+                DrawLine(bounds.left(), 0, bounds.left(), bounds.bottom(), "black", 1)
             )
             cmds.append(
-                DrawLine(bounds.right, 0, bounds.right, bounds.bottom, "black", 1)
+                DrawLine(bounds.right(), 0, bounds.right(), bounds.bottom(), "black", 1)
             )
             cmds.append(
                 DrawText(
-                    bounds.left + self.padding,
-                    bounds.top + self.padding,
+                    bounds.left() + self.padding,
+                    bounds.top() + self.padding,
                     "Tab {}".format(i),
                     self.font,
                     "black",
@@ -115,19 +123,26 @@ class Chrome:
 
             if tab == self.browser.active_tab:
                 cmds.append(
-                    DrawLine(0, bounds.bottom, bounds.left, bounds.bottom, "black", 1)
+                    DrawLine(
+                        0, bounds.bottom(), bounds.left(), bounds.bottom(), "black", 1
+                    )
                 )
                 cmds.append(
                     DrawLine(
-                        bounds.right, bounds.bottom, WIDTH, bounds.bottom, "black", 1
+                        bounds.right(),
+                        bounds.bottom(),
+                        WIDTH,
+                        bounds.bottom(),
+                        "black",
+                        1,
                     )
                 )
 
         cmds.append(DrawOutline(self.back_rect, "black", 1))
         cmds.append(
             DrawText(
-                self.back_rect.left + self.padding,
-                self.back_rect.top,
+                self.back_rect.left() + self.padding,
+                self.back_rect.top(),
                 "<",
                 self.font,
                 "black",
@@ -138,20 +153,20 @@ class Chrome:
         if self.focus == "address bar":
             cmds.append(
                 DrawText(
-                    self.address_rect.left + self.padding,
-                    self.address_rect.top,
+                    self.address_rect.left() + self.padding,
+                    self.address_rect.top(),
                     self.address_bar,
                     self.font,
                     "black",
                 )
             )
-            w = self.font.measure(self.address_bar)
+            w = self.font.measureText(self.address_bar)
             cmds.append(
                 DrawLine(
-                    self.address_rect.left + self.padding + w,
-                    self.address_rect.top,
-                    self.address_rect.left + self.padding + w,
-                    self.address_rect.bottom,
+                    self.address_rect.left() + self.padding + w,
+                    self.address_rect.top(),
+                    self.address_rect.left() + self.padding + w,
+                    self.address_rect.bottom(),
                     "red",
                     1,
                 )
@@ -160,8 +175,8 @@ class Chrome:
             url = str(self.browser.active_tab.url)
             cmds.append(
                 DrawText(
-                    self.address_rect.left + self.padding,
-                    self.address_rect.top,
+                    self.address_rect.left() + self.padding,
+                    self.address_rect.top(),
                     url,
                     self.font,
                     "black",
@@ -172,18 +187,31 @@ class Chrome:
 
     def click(self, x, y):
         self.focus = None
-        if self.newtab_rect.contains_point(x, y):
+        if self.newtab_rect.contains(x, y):
             self.browser.new_tab(URL("https://browser.engineering/"))
-        elif self.back_rect.contains_point(x, y):
+        elif self.back_rect.contains(x, y):
             self.browser.active_tab.go_back()
-        elif self.address_rect.contains_point(x, y):
+            self.browser.raster_chrome()
+            self.browser.raster_tab()
+            self.browser.draw()
+        elif self.address_rect.contains(x, y):
             self.focus = "address bar"
             self.address_bar = ""
         else:
             for i, tab in enumerate(self.browser.tabs):
-                if self.tab_rect(i).contains_point(x, y):
+                if self.tab_rect(i).contains(x, y):
                     self.browser.active_tab = tab
                     break
+            self.browser.raster_tab()
+
+    def enter(self):
+        if self.focus == "address bar":
+            self.browser.active_tab.load(URL(self.address_bar))
+            self.focus = None
+            self.browser.focus = None
+
+    def blur(self):
+        self.focus = None
 
     def keypress(self, char):
         if self.focus == "address bar":
@@ -191,74 +219,154 @@ class Chrome:
             return True
         return False
 
-    def enter(self):
-        if self.focus == "address bar":
-            self.browser.active_tab.load(URL(self.address_bar))
-            self.focus = None
-
 
 class Browser:
     def __init__(self):
-        self.window = tkinter.Tk()
-        self.canvas = tkinter.Canvas(
-            self.window,
-            width=WIDTH,
-            height=HEIGHT,
-            bg="white",
-        )
-        self.canvas.pack()
+        self.chrome = Chrome(self)
 
-        self.window.bind("<Down>", self.handle_down)
-        self.window.bind("<Button-1>", self.handle_click)
-        self.window.bind("<Key>", self.handle_key)
-        self.window.bind("<Return>", self.handle_enter)
+        self.sdl_window = sdl2.SDL_CreateWindow(
+            b"Browser",
+            sdl2.SDL_WINDOWPOS_CENTERED,
+            sdl2.SDL_WINDOWPOS_CENTERED,
+            WIDTH,
+            HEIGHT,
+            sdl2.SDL_WINDOW_SHOWN,
+        )
+        self.root_surface = skia.Surface.MakeRaster(
+            skia.ImageInfo.Make(
+                WIDTH, HEIGHT, ct=skia.kRGBA_8888_ColorType, at=skia.kUnpremul_AlphaType
+            )
+        )
+        self.chrome_surface = skia.Surface(WIDTH, math.ceil(self.chrome.bottom))
+        self.tab_surface = None
 
         self.tabs = []
         self.active_tab = None
-        self.chrome = Chrome(self)
+        self.focus = None
 
-    def handle_down(self, e):
-        self.active_tab.scrolldown()
-        self.draw()
+        if sdl2.SDL_BYTEORDER == sdl2.SDL_BIG_ENDIAN:
+            self.RED_MASK = 0xFF000000
+            self.GREEN_MASK = 0x00FF0000
+            self.BLUE_MASK = 0x0000FF00
+            self.ALPHA_MASK = 0x000000FF
+        else:
+            self.RED_MASK = 0x000000FF
+            self.GREEN_MASK = 0x0000FF00
+            self.BLUE_MASK = 0x00FF0000
+            self.ALPHA_MASK = 0xFF000000
 
     def handle_click(self, e):
         if e.y < self.chrome.bottom:
             self.focus = None
             self.chrome.click(e.x, e.y)
+            self.raster_chrome()
         else:
-            self.focus = "content"
-            self.chrome.blur()
+            if self.focus != "content":
+                self.focus = "content"
+                self.chrome.blur()
+                self.raster_chrome()
+            url = self.active_tab.url
             tab_y = e.y - self.chrome.bottom
             self.active_tab.click(e.x, tab_y)
+            if self.active_tab.url != url:
+                self.raster_chrome()
+            self.raster_tab()
         self.draw()
 
-    def handle_key(self, e):
-        if len(e.char) == 0:
+    def handle_key(self, char):
+        if not (0x20 <= ord(char) < 0x7F):
             return
-        if not (0x20 <= ord(e.char) < 0x7F):
-            return
-        if self.chrome.keypress(e.char):
+        if self.chrome.focus:
+            self.chrome.keypress(char)
+            self.raster_chrome()
             self.draw()
         elif self.focus == "content":
-            self.active_tab.keypress(e.char)
+            self.active_tab.keypress(char)
+            self.raster_tab()
             self.draw()
 
-    def handle_enter(self, e):
-        self.chrome.enter()
+    def handle_enter(self):
+        if self.chrome.focus:
+            self.chrome.enter()
+            self.raster_tab()
+            self.raster_chrome()
+            self.draw()
+
+    def handle_down(self):
+        self.active_tab.scrolldown()
         self.draw()
 
     def new_tab(self, url):
         new_tab = Tab(HEIGHT - self.chrome.bottom)
         new_tab.load(url)
-        self.active_tab = new_tab
         self.tabs.append(new_tab)
+        self.active_tab = new_tab
+        self.raster_chrome()
+        self.raster_tab()
         self.draw()
 
-    def draw(self):
-        self.canvas.delete("all")
-        self.active_tab.draw(self.canvas, self.chrome.bottom)
+    def raster_tab(self):
+        tab_height = math.ceil(self.active_tab.document.height + 2 * VSTEP)
+
+        if not self.tab_surface or tab_height != self.tab_surface.height():
+            self.tab_surface = skia.Surface(WIDTH, tab_height)
+
+        canvas = self.tab_surface.getCanvas()
+        canvas.clear(skia.ColorWHITE)
+        self.active_tab.raster(canvas)
+
+    def raster_chrome(self):
+        canvas = self.chrome_surface.getCanvas()
+        canvas.clear(skia.ColorWHITE)
+
         for cmd in self.chrome.paint():
-            cmd.execute(0, self.canvas)
+            cmd.execute(canvas)
+
+    def draw(self):
+        canvas = self.root_surface.getCanvas()
+        canvas.clear(skia.ColorWHITE)
+
+        tab_rect = skia.Rect.MakeLTRB(0, self.chrome.bottom, WIDTH, HEIGHT)
+        tab_offset = self.chrome.bottom - self.active_tab.scroll
+        canvas.save()
+        canvas.clipRect(tab_rect)
+        canvas.translate(0, tab_offset)
+        self.tab_surface.draw(canvas, 0, 0)
+        canvas.restore()
+
+        chrome_rect = skia.Rect.MakeLTRB(0, 0, WIDTH, self.chrome.bottom)
+        canvas.save()
+        canvas.clipRect(chrome_rect)
+        self.chrome_surface.draw(canvas, 0, 0)
+        canvas.restore()
+
+        # This makes an image interface to the Skia surface, but
+        # doesn't actually copy anything yet.
+        skia_image = self.root_surface.makeImageSnapshot()
+        skia_bytes = skia_image.tobytes()
+
+        depth = 32  # Bits per pixel
+        pitch = 4 * WIDTH  # Bytes per row
+        sdl_surface = sdl2.SDL_CreateRGBSurfaceFrom(
+            skia_bytes,
+            WIDTH,
+            HEIGHT,
+            depth,
+            pitch,
+            self.RED_MASK,
+            self.GREEN_MASK,
+            self.BLUE_MASK,
+            self.ALPHA_MASK,
+        )
+
+        rect = sdl2.SDL_Rect(0, 0, WIDTH, HEIGHT)
+        window_surface = sdl2.SDL_GetWindowSurface(self.sdl_window)
+        # SDL_BlitSurface is what actually does the copy.
+        sdl2.SDL_BlitSurface(sdl_surface, rect, window_surface, rect)
+        sdl2.SDL_UpdateWindowSurface(self.sdl_window)
+
+    def handle_quit(self):
+        sdl2.SDL_DestroyWindow(self.sdl_window)
 
 
 class Tab:
@@ -332,13 +440,9 @@ class Tab:
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
-    def draw(self, canvas, offset):
+    def raster(self, canvas):
         for cmd in self.display_list:
-            if cmd.rect.top > self.scroll + self.tab_height:
-                continue
-            if cmd.rect.bottom < self.scroll:
-                continue
-            cmd.execute(self.scroll - offset, canvas)
+            cmd.execute(canvas)
 
     def scrolldown(self):
         max_y = max(self.document.height + 2 * VSTEP - self.tab_height, 0)

@@ -1,10 +1,10 @@
 from src.webby.constants import BLOCK_ELEMENTS
-from src.webby.draw import DrawRect, DrawText, Rect
+from src.webby.draw import DrawRect, DrawText, Rect, Blend, DrawRRect
 from src.webby.element import Element
 from src.webby.font import get_font
 from src.webby.input_layout import INPUT_WIDTH_PX, InputLayout
 from src.webby.text import Text
-
+import skia
 HEIGHT, WIDTH = 600, 800
 HSTEP, VSTEP = 13, 18
 
@@ -27,6 +27,54 @@ class BlockLayout:
         self.previous = previous
         self.parent = parent
         self.children = []
+
+    def word(self, node, word):
+        weight = node.style["font-weight"]
+        style = node.style["font-style"]
+        size = float(node.style["font-size"][:-2]) * 0.75
+        font = get_font(size, weight, style)
+        w = font.measureText(word)
+        if self.cursor_x + w > self.width:
+            self.new_line()
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        text = TextLayout(node, word, line, previous_word)
+        line.children.append(text)
+        self.cursor_x += w + font.measureText(" ")
+
+    def input(self, node):
+        w = INPUT_WIDTH_PX
+        if self.cursor_x + w > self.width:
+            self.new_line()
+        line = self.children[-1]
+        previous_word = line.children[-1] if line.children else None
+        input = InputLayout(node, line, previous_word)
+        line.children.append(input)
+        weight = node.style["font-weight"]
+        style = node.style["font-style"]
+        size = float(node.style["font-size"][:-2]) * 0.75
+        font = get_font(size, weight, style)
+        self.cursor_x += w + font.measureText(" ")
+
+    def self_rect(self):
+        return skia.Rect.MakeLTRB(
+            self.x, self.y, self.x + self.width, self.y + self.height
+        )
+
+    def paint(self):
+        cmds = []
+
+        bgcolor = self.node.style.get("background-color", "transparent")
+
+        if bgcolor != "transparent":
+            radius = float(self.node.style.get("border-radius", "0px")[:-2])
+            cmds.append(DrawRRect(self.self_rect(), radius, bgcolor))
+
+        return cmds
+
+    def paint_effects(self, cmds):
+        cmds = paint_visual_effects(self.node, cmds, self.self_rect())
+        return cmds
 
     def layout(self):
         self.width = self.parent.width
@@ -98,24 +146,6 @@ class BlockLayout:
             self.flush()
             self.cursor_y += VSTEP
 
-    def input(self, node):
-        w = INPUT_WIDTH_PX
-        if self.cursor_x + w > self.width:
-            self.new_line()
-        line = self.children[-1]
-        previous_word = line.children[-1] if line.children else None
-        input = InputLayout(node, line, previous_word)
-        line.children.append(input)
-
-        weight = node.style["font-weight"]
-        style = node.style["font-style"]
-        if style == "normal":
-            style = "roman"
-        size = int(float(node.style["font-size"][:-2]) * 0.75)
-        font = get_font(size, weight, style)
-
-        self.cursor_x += w + font.measure(" ")
-
     def recurse(self, node):
         if isinstance(node, Text):
             for word in node.text.split():
@@ -160,24 +190,6 @@ class BlockLayout:
             self.node.tag != "input" and self.node.tag != "button"
         )
 
-    def word(self, node, word):
-        weight = node.style["font-weight"]
-        style = node.style["font-style"]
-        if style == "normal":
-            style = "roman"
-        size = int(float(node.style["font-size"][:-2]) * 0.75)
-        font = get_font(size, weight, style)
-        w = font.measure(word)
-        if self.cursor_x + w > self.width:
-            self.new_line()
-        color = node.style["color"]
-        self.line.append((self.cursor_x, word, font, color))
-        self.cursor_x += w + font.measure(" ")
-        line = self.children[-1]
-        previous_word = line.children[-1] if line.children else None
-        text = TextLayout(node, word, line, previous_word)
-        line.children.append(text)
-
     def new_line(self):
         self.cursor_x = 0
         last_line = self.children[-1] if self.children else None
@@ -198,20 +210,6 @@ class BlockLayout:
         self.line = []
         max_descent = max([metric["descent"] for metric in metrics])
         self.cursor_y = baseline + 1.25 * max_descent
-
-    def paint(self):
-        cmds = []
-        bgcolor = self.node.style.get("background-color", "transparent")
-        if bgcolor != "transparent":
-            x2, y2 = self.x + self.width, self.y + self.height
-            rect = DrawRect(Rect(self.x, self.y, x2, y2), bgcolor)
-            cmds.append(rect)
-
-        if self.layout_mode() == "inline":
-            for x, y, word, font, color in self.display_list:
-                cmds.append(DrawText(x, y, word, font, color))
-
-        return cmds
 
 
 class LineLayout:
@@ -244,15 +242,18 @@ class LineLayout:
             self.height = 0
             return
 
-        max_ascent = max([word.font.metrics("ascent") for word in self.children])
+        max_ascent = max([-word.font.getMetrics().fAscent for word in self.children])
         baseline = self.y + 1.25 * max_ascent
         for word in self.children:
-            word.y = baseline - word.font.metrics("ascent")
-        max_descent = max([word.font.metrics("descent") for word in self.children])
+            word.y = baseline + word.font.getMetrics().fAscent
+        max_descent = max([word.font.getMetrics().fDescent for word in self.children])
         self.height = 1.25 * (max_ascent + max_descent)
 
     def paint(self):
         return []
+
+    def paint_effects(self, cmds):
+        return cmds
 
     def __repr__(self):
         return "LineLayout(x={}, y={}, width={}, height={})".format(
@@ -279,27 +280,50 @@ class TextLayout:
     def layout(self):
         weight = self.node.style["font-weight"]
         style = self.node.style["font-style"]
-        if style == "normal":
-            style = "roman"
-        size = int(float(self.node.style["font-size"][:-2]) * 0.75)
+        size = float(self.node.style["font-size"][:-2]) * 0.75
         self.font = get_font(size, weight, style)
 
         # Do not set self.y!!!
-        self.width = self.font.measure(self.word)
+        self.width = self.font.measureText(self.word)
 
         if self.previous:
-            space = self.previous.font.measure(" ")
+            space = self.previous.font.measureText(" ")
             self.x = self.previous.x + space + self.previous.width
         else:
             self.x = self.parent.x
 
-        self.height = self.font.metrics("linespace")
+        self.height = linespace(self.font)
 
     def paint(self):
+        cmds = []
         color = self.node.style["color"]
-        return [DrawText(self.x, self.y, self.word, self.font, color)]
+        cmds.append(DrawText(self.x, self.y, self.word, self.font, color))
+        return cmds
+
+    def paint_effects(self, cmds):
+        return cmds
 
     def __repr__(self):
         return ("TextLayout(x={}, y={}, width={}, height={}, word={})").format(
             self.x, self.y, self.width, self.height, self.word
         )
+
+
+def linespace(font):
+    metrics = font.getMetrics()
+    return metrics.fDescent - metrics.fAscent
+
+
+def paint_visual_effects(node, cmds, rect):
+    opacity = float(node.style.get("opacity", "1.0"))
+    blend_mode = node.style.get("mix-blend-mode")
+
+    if node.style.get("overflow", "visible") == "clip":
+        border_radius = float(node.style.get("border-radius", "0px")[:-2])
+        if not blend_mode:
+            blend_mode = "source-over"
+        cmds.append(
+            Blend(1.0, "destination-in", [DrawRRect(rect, border_radius, "white")])
+        )
+
+    return [Blend(opacity, blend_mode, cmds)]

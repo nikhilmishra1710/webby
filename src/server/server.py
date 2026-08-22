@@ -46,6 +46,11 @@ def handle_connection(conx):
 
 def login_form(session):
     body = "<!doctype html>"
+    body += """<div 
+  style="border-radius:30px;background-color:lightblue;overflow:clip">
+    This test text exists here to ensure that the "div" element is
+    large enough that the border radius is obvious. llah llahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllahllah
+</div>"""
     body += "<form action=/ method=post>"
     body += "<p>Username: <input name=username></p>"
     body += "<p>Password: <input name=password type=password></p>"

@@ -27,3 +27,6 @@ class DocumentLayout:
 
     def paint(self):
         return []
+
+    def paint_effects(self, cmds):
+        return cmds
