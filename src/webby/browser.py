@@ -1,17 +1,19 @@
-import ctypes
-import urllib.parse
 import math
+import urllib.parse
+
 import sdl2
 import skia
 
 from src.webby.constants import HEIGHT, SCROLL_STEP, VSTEP, WIDTH
 from src.webby.css_parser import CSSParser, cascade_priority, style, tree_to_list
 from src.webby.document_layout import DocumentLayout
-from src.webby.draw import DrawLine, DrawOutline, DrawRect, DrawText, Rect
+from src.webby.draw import DrawLine, DrawOutline, DrawText
 from src.webby.element import Element
 from src.webby.html_parser import HTMLParser
 from src.webby.js_context import JSContext
 from src.webby.layout import get_font
+from src.webby.task import Task
+from src.webby.task_runner import TaskRunner
 from src.webby.text import Text
 from src.webby.url import URL
 
@@ -375,6 +377,7 @@ class Tab:
         self.history = []
         self.tab_height = tab_height
         self.focus = None
+        self.task_runner = TaskRunner(self)
 
     def load(self, url, payload=None):
         headers, body = url.request(self.url, payload)
@@ -416,6 +419,8 @@ class Tab:
             and node.tag == "script"
             and "src" in node.attributes
         ]
+        if self.js:
+            self.js.discarded = True
         self.js = JSContext(self)
         for script in scripts:
             script_url = url.resolve(script)
@@ -423,10 +428,11 @@ class Tab:
                 print("Blocked script", script, "due to CSP")
                 continue
             try:
-                headers, body = script_url.request(url)
+                header, body = script_url.request(url)
             except:
                 continue
-            self.js.run(script, body)
+            task = Task(self.js.run, script_url, body)
+            self.task_runner.schedule_task(task)
 
         self.render()
 

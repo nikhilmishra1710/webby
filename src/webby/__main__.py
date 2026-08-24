@@ -1,7 +1,7 @@
-import sys
 import ctypes
+import sys
+
 import sdl2
-import skia
 
 from src.webby.browser import Browser
 from src.webby.url import URL
@@ -31,3 +31,4 @@ def mainloop(browser):
                     browser.handle_down()
             elif event.type == sdl2.SDL_TEXTINPUT:
                 browser.handle_key(event.text.text.decode("utf8"))
+            browser.active_tab.task_runner.run()
