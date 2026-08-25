@@ -54,6 +54,16 @@ def login_form(session):
     return body
 
 
+def show_count():
+    out = "<!doctype html>"
+    out += "<div>"
+    out += "  Let's count up to 99!"
+    out += "</div>"
+    out += "<div>Output</div>"
+    out += "<script src=/count.js></script>"
+    return out
+
+
 def do_login(session, params):
     username = params.get("username")
     password = params.get("password")
@@ -80,6 +90,11 @@ def do_request(session, method, url, headers, body):
         return "200 OK", login_form(session)
     elif method == "GET" and url == "/comment.js":
         with open("sample_files/comment.js") as f:
+            return "200 OK", f.read()
+    elif method == "GET" and url == "/count":
+        return "200 OK", show_count()
+    elif method == "GET" and url == "/count.js":
+        with open("sample_files/count.js") as f:
             return "200 OK", f.read()
     else:
         return "404 Not Found", not_found(url, method)

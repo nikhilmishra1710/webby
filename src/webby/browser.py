@@ -1,4 +1,5 @@
 import math
+import threading
 import urllib.parse
 
 import sdl2
@@ -16,6 +17,8 @@ from src.webby.task import Task
 from src.webby.task_runner import TaskRunner
 from src.webby.text import Text
 from src.webby.url import URL
+
+REFRESH_RATE_SEC = 0.033
 
 
 def paint_tree(layout_object, display_list):
@@ -193,9 +196,7 @@ class Chrome:
             self.browser.new_tab(URL("https://browser.engineering/"))
         elif self.back_rect.contains(x, y):
             self.browser.active_tab.go_back()
-            self.browser.raster_chrome()
-            self.browser.raster_tab()
-            self.browser.draw()
+            self.browser.set_needs_raster_and_draw()
         elif self.address_rect.contains(x, y):
             self.focus = "address bar"
             self.address_bar = ""
@@ -211,6 +212,8 @@ class Chrome:
             self.browser.active_tab.load(URL(self.address_bar))
             self.focus = None
             self.browser.focus = None
+            return True
+        return False
 
     def blur(self):
         self.focus = None
@@ -256,56 +259,66 @@ class Browser:
             self.GREEN_MASK = 0x0000FF00
             self.BLUE_MASK = 0x00FF0000
             self.ALPHA_MASK = 0xFF000000
+        self.animation_timer = None
+        self.needs_raster_and_draw = False
+
+    def set_needs_raster_and_draw(self):
+        self.needs_raster_and_draw = True
+
+    def schedule_animation_frame(self):
+        def callback():
+            active_tab = self.active_tab
+            task = Task(active_tab.render)
+            active_tab.task_runner.schedule_task(task)
+            self.animation_timer = None
+
+        if not self.animation_timer:
+            self.animation_timer = threading.Timer(REFRESH_RATE_SEC, callback)
+            self.animation_timer.start()
 
     def handle_click(self, e):
         if e.y < self.chrome.bottom:
             self.focus = None
             self.chrome.click(e.x, e.y)
-            self.raster_chrome()
+            self.set_needs_raster_and_draw()
         else:
             if self.focus != "content":
                 self.focus = "content"
-                self.chrome.blur()
-                self.raster_chrome()
-            url = self.active_tab.url
+                self.chrome.focus = None
+                self.set_needs_raster_and_draw()
+            self.chrome.blur()
             tab_y = e.y - self.chrome.bottom
-            self.active_tab.click(e.x, tab_y)
-            if self.active_tab.url != url:
-                self.raster_chrome()
-            self.raster_tab()
-        self.draw()
+            task = Task(self.active_tab.click, e.x, tab_y)
+            self.active_tab.task_runner.schedule_task(task)
 
     def handle_key(self, char):
         if not (0x20 <= ord(char) < 0x7F):
             return
-        if self.chrome.focus:
-            self.chrome.keypress(char)
-            self.raster_chrome()
-            self.draw()
-        elif self.focus == "content":
-            self.active_tab.keypress(char)
-            self.raster_tab()
-            self.draw()
+        if (self.chrome.focus and self.chrome.keypress(char)) or (
+            self.focus == "content" and self.active_tab.keypress(char)
+        ):
+            self.set_needs_raster_and_draw()
 
     def handle_enter(self):
-        if self.chrome.focus:
-            self.chrome.enter()
-            self.raster_tab()
-            self.raster_chrome()
-            self.draw()
+        if self.chrome.focus and self.chrome.enter():
+            self.set_needs_raster_and_draw()
 
     def handle_down(self):
         self.active_tab.scrolldown()
         self.draw()
 
     def new_tab(self, url):
-        new_tab = Tab(HEIGHT - self.chrome.bottom)
+        new_tab = Tab(self, HEIGHT - self.chrome.bottom)
         new_tab.load(url)
         self.tabs.append(new_tab)
         self.active_tab = new_tab
-        self.raster_chrome()
-        self.raster_tab()
-        self.draw()
+
+    def raster_and_draw(self):
+        if self.needs_raster_and_draw:
+            self.raster_chrome()
+            self.raster_tab()
+            self.draw()
+            self.needs_raster_and_draw = False
 
     def raster_tab(self):
         tab_height = math.ceil(self.active_tab.document.height + 2 * VSTEP)
@@ -372,12 +385,18 @@ class Browser:
 
 
 class Tab:
-    def __init__(self, tab_height):
+    def __init__(self, browser, tab_height):
         self.url = None
         self.history = []
         self.tab_height = tab_height
         self.focus = None
         self.task_runner = TaskRunner(self)
+        self.needs_render = False
+        self.js = None
+        self.browser = browser
+
+    def set_needs_render(self):
+        self.needs_render = True
 
     def load(self, url, payload=None):
         headers, body = url.request(self.url, payload)
@@ -434,17 +453,22 @@ class Tab:
             task = Task(self.js.run, script_url, body)
             self.task_runner.schedule_task(task)
 
-        self.render()
+        self.set_needs_render()
 
     def allowed_request(self, url):
         return self.allowed_origins == None or url.origin() in self.allowed_origins
 
     def render(self):
-        style(self.nodes, sorted(self.rules, key=cascade_priority))
-        self.document = DocumentLayout(self.nodes)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
+        if self.needs_render:
+            self.js.interp.evaljs("__runRAFHandlers()")
+            style(self.nodes, sorted(self.rules, key=cascade_priority))
+            self.document = DocumentLayout(self.nodes)
+            self.document.layout()
+            self.display_list = []
+            paint_tree(self.document, self.display_list)
+            print("self.needs_render: ",self.needs_render)
+            self.needs_render = False
+            self.browser.set_needs_raster_and_draw()
 
     def raster(self, canvas):
         for cmd in self.display_list:
@@ -455,10 +479,11 @@ class Tab:
         self.scroll = min(self.scroll + SCROLL_STEP, max_y)
 
     def click(self, x, y):
-        y += self.scroll
+        self.render()
         if self.focus:
             self.focus.is_focused = False
         self.focus = None
+        y += self.scroll
         objs = [
             obj
             for obj in tree_to_list(self.document, [])
@@ -518,7 +543,7 @@ class Tab:
             if self.js.dispatch_event("keydown", self.focus):
                 return
             self.focus.attributes["value"] += char
-            self.render()
+            self.set_needs_render()
 
     def go_back(self):
         if len(self.history) > 1:

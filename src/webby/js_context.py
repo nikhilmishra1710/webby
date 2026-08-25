@@ -25,6 +25,7 @@ class JSContext:
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("XMLHttpRequest_send", self.XMLHttpRequest_send)
         self.interp.export_function("setTimeout", self.setTimeout)
+        self.interp.export_function("requestAnimationFrame", self.requestAnimationFrame)
         self.interp.evaljs(RUNTIME_JS)
 
         self.discarded = False
@@ -32,6 +33,8 @@ class JSContext:
         self.handle_to_node = {}
 
     def run(self, script, code):
+        print("script:", script)
+        print("code:", code)
         try:
             return self.interp.evaljs(code)
         except dukpy.JSRuntimeError as e:
@@ -70,7 +73,8 @@ class JSContext:
         elt.children = new_nodes
         for child in elt.children:
             child.parent = elt
-        self.tab.render()
+        print("innerHTML_set calls set_needs_render")
+        self.tab.set_needs_render()
 
     def XMLHttpRequest_send(self, method, url, body, isasync, handle):
         full_url = self.tab.url.resolve(url)
@@ -106,3 +110,8 @@ class JSContext:
             self.tab.task_runner.schedule_task(task)
 
         threading.Timer(time / 1000.0, run_callback).start()
+
+    def requestAnimationFrame(self):
+        print("requestAnimationFrame")
+        task = Task(self.tab.render)
+        self.tab.task_runner.schedule_task(task)
