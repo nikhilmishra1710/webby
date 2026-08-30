@@ -71,3 +71,5 @@ BLOCK_ELEMENTS = [
     "details",
     "summary",
 ]
+
+USE_BROWSER_THREAD = False

@@ -4,24 +4,27 @@ import sys
 import sdl2
 
 from src.webby.browser import Browser
+from src.webby.constants import USE_BROWSER_THREAD
 from src.webby.url import URL
 
 
 def main():
     sdl2.SDL_Init(sdl2.SDL_INIT_EVENTS)
-    browser = Browser()
+    browser: Browser = Browser()
     browser.new_tab(URL(sys.argv[1]))
+    browser.raster_and_draw()
     mainloop(browser)
 
 
-def mainloop(browser):
+def mainloop(browser: Browser):
     event = sdl2.SDL_Event()
     while True:
-        while sdl2.SDL_PollEvent(ctypes.byref(event)) != 0:
+        if sdl2.SDL_PollEvent(ctypes.byref(event)) != 0:
             if event.type == sdl2.SDL_QUIT:
                 browser.handle_quit()
                 sdl2.SDL_Quit()
                 sys.exit()
+                break
             elif event.type == sdl2.SDL_MOUSEBUTTONUP:
                 browser.handle_click(event.button)
             elif event.type == sdl2.SDL_KEYDOWN:
@@ -31,6 +34,11 @@ def mainloop(browser):
                     browser.handle_down()
             elif event.type == sdl2.SDL_TEXTINPUT:
                 browser.handle_key(event.text.text.decode("utf8"))
-        browser.active_tab.task_runner.run()
+        if not USE_BROWSER_THREAD:
+            if browser.active_tab.task_runner.needs_quit:
+                break
+            if browser.needs_animation_frame:
+                browser.needs_animation_frame = False
+                browser.render()
         browser.raster_and_draw()
         browser.schedule_animation_frame()
