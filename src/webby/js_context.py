@@ -28,6 +28,7 @@ class JSContext:
         self.interp.export_function("XMLHttpRequest_send", self.XMLHttpRequest_send)
         self.interp.export_function("setTimeout", self.setTimeout)
         self.interp.export_function("requestAnimationFrame", self.requestAnimationFrame)
+        self.interp.export_function("style_set", self.style_set)
         self.tab.browser.measure.time("script-runtime")
         self.interp.evaljs(RUNTIME_JS)
         self.tab.browser.measure.stop("script-runtime")
@@ -121,3 +122,8 @@ class JSContext:
         elt = self.handle_to_node[handle]
         attr = elt.attributes.get(attr, None)
         return attr if attr else ""
+
+    def style_set(self, handle, s):
+        elt = self.handle_to_node[handle]
+        elt.attributes["style"] = s
+        self.tab.set_needs_render()

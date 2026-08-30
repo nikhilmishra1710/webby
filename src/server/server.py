@@ -96,6 +96,11 @@ def do_request(session, method, url, headers, body):
     elif method == "GET" and url == "/count.js":
         with open("sample_files/count.js") as f:
             return "200 OK", f.read()
+    elif method == "GET" and url == "/fade":
+        return "200 OK", show_fade()
+    elif method == "GET" and url == "/fade.js":
+        with open("sample_files/fade.js") as f:
+            return "200 OK", f.read()
     else:
         return "404 Not Found", not_found(url, method)
 
@@ -132,6 +137,14 @@ def show_comments(session):
             out += "<i>by " + html.escape(who) + "</i></p>"
     else:
         out += "<a href=/login>Sign in to write in the guest book</a>"
+    return out
+
+
+def show_fade():
+    out = "<!doctype html>"
+    out += "<script src=/fade.js></script>"
+    out += "<button>Fade in</button> <button>Fade out</button>"
+    out += "<div>This text fades</div>"
     return out
 
 
